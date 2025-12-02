@@ -8,7 +8,7 @@ const os = require("os");
 const path = require("path");
 require("dotenv").config();
 
-// Google AI SDK
+// Google AI (Gemini)
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
 
@@ -17,10 +17,10 @@ app.use(cors({ origin: true }));
 app.use(bodyParser.json({ limit: "50mb" }));
 
 /* ---------------------------------------------------------
-   ✅ ENVIRONMENT VALIDATION
+   VALIDATE API KEY
 --------------------------------------------------------- */
 if (!process.env.GOOGLE_API_KEY) {
-  console.error("❌ ERROR: Missing GOOGLE_API_KEY in environment.");
+  console.error("❌ ERROR: Missing GOOGLE_API_KEY in .env");
   process.exit(1);
 }
 
@@ -29,66 +29,70 @@ const genAI = new GoogleGenerativeAI(apiKey);
 const fileManager = new GoogleAIFileManager(apiKey);
 
 /* ---------------------------------------------------------
-   🔧 MODEL CONFIG
+   MODEL CONFIG
 --------------------------------------------------------- */
 const MODEL = "gemini-2.0-flash";
 
 /* ---------------------------------------------------------
-   📤 HELPER: Upload Files to Gemini
+   📤 Upload helper: Base64 → Gemini File API
 --------------------------------------------------------- */
 async function uploadToGemini(base64Data, mimeType, displayName) {
   try {
     const buffer = Buffer.from(base64Data, "base64");
-    const tempFile = path.join(os.tmpdir(), displayName || `temp_${Date.now()}`);
+    const tempPath = path.join(os.tmpdir(), displayName || `file_${Date.now()}`);
 
-    fs.writeFileSync(tempFile, buffer);
+    fs.writeFileSync(tempPath, buffer);
 
-    const uploaded = await fileManager.uploadFile(tempFile, {
+    const uploadResponse = await fileManager.uploadFile(tempPath, {
       mimeType,
       displayName,
     });
 
-    fs.unlinkSync(tempFile);
+    fs.unlinkSync(tempPath);
 
-    return { uri: uploaded.file.uri, mimeType };
+    return {
+      uri: uploadResponse.file.uri,
+      mimeType: mimeType,
+    };
   } catch (err) {
-    console.error("❌ File Upload Error:", err);
-    throw new Error("File upload to Gemini failed.");
+    console.error("❌ Upload failed:", err);
+    throw new Error("File upload error");
   }
 }
 
 /* ---------------------------------------------------------
-   🏠 ROOT ROUTE (Fixes Render 404 Issue)
+   ROOT CHECK (Fix for Render 404)
 --------------------------------------------------------- */
 app.get("/", (req, res) => {
   res.json({
-    status: "running",
-    message: "ArchieSavvy Backend is Live 🚀",
-    timestamp: new Date().toISOString(),
+    status: "online",
+    service: "ArchieSavvy Backend",
+    time: new Date().toISOString(),
   });
 });
 
 /* ---------------------------------------------------------
-   🎓 TITLING
+   ✨ Generate Title
 --------------------------------------------------------- */
 app.post("/generate-title", async (req, res) => {
   try {
     const { message } = req.body;
 
     const model = genAI.getGenerativeModel({ model: MODEL });
-    const output = await model.generateContent(
-      `Summarize this in 3–5 words for a chat title: ${message}`
+
+    const result = await model.generateContent(
+      `Summarize this into a short 3-5 word title: ${message}`
     );
 
-    return res.json({ title: output.response.text().trim() });
+    res.json({ title: result.response.text().trim() });
   } catch (err) {
-    console.error("❌ Title Error:", err);
-    res.status(500).json({ error: "Failed to generate title." });
+    console.error(err);
+    res.status(500).json({ error: "Title generation failed" });
   }
 });
 
 /* ---------------------------------------------------------
-   💬 MAIN CHAT ENDPOINT
+   💬 MAIN CHAT (All-in-one endpoint)
 --------------------------------------------------------- */
 app.post("/chatWithTutor", async (req, res) => {
   try {
@@ -103,14 +107,14 @@ app.post("/chatWithTutor", async (req, res) => {
     } = req.body;
 
     /* -----------------------------
-       ACTION: Title generation
+       ACTION: Generate Title
     ----------------------------- */
     if (action === "generate_title") {
       const model = genAI.getGenerativeModel({ model: MODEL });
-      const output = await model.generateContent(
-        `Summarize this in 3–5 words: ${message}`
+      const result = await model.generateContent(
+        `Summarize this into a short title: ${message}`
       );
-      return res.json({ title: output.response.text().trim() });
+      return res.json({ title: result.response.text().trim() });
     }
 
     /* -----------------------------
@@ -119,39 +123,37 @@ app.post("/chatWithTutor", async (req, res) => {
     if (action === "chat") {
       let newUploads = [];
 
-      // Upload new files
       if (files?.length > 0) {
-        const uploads = files.map((file) =>
+        const uploadJobs = files.map((f) =>
           uploadToGemini(
-            file.data,
-            file.type === "pdf" ? "application/pdf" : "image/png",
-            file.name
+            f.data,
+            f.type === "pdf" ? "application/pdf" : "image/png",
+            f.name
           )
         );
-
-        newUploads = await Promise.all(uploads);
+        newUploads = await Promise.all(uploadJobs);
       }
 
-      const existingFiles = activeFileUris.filter(
+      const oldFiles = activeFileUris.filter(
         (f) => typeof f === "object" && f.uri
       );
 
-      const finalFileList = [...existingFiles, ...newUploads];
+      const finalFiles = [...oldFiles, ...newUploads];
 
       const model = genAI.getGenerativeModel({ model: MODEL });
 
       const chatHistory = history
-        .map((m) => ({ role: m.role, parts: [{ text: m.text || "" }] }))
+        .map((m) => ({
+          role: m.role,
+          parts: [{ text: m.text || "" }],
+        }))
         .slice(-15);
 
       const parts = [];
 
-      // Attach files as parts
-      finalFileList.forEach((file) => {
-        parts.push({
-          fileData: { mimeType: file.mimeType, fileUri: file.uri },
-        });
-      });
+      finalFiles.forEach((file) =>
+        parts.push({ fileData: { mimeType: file.mimeType, fileUri: file.uri } })
+      );
 
       if (message) parts.push({ text: message });
 
@@ -161,7 +163,7 @@ app.post("/chatWithTutor", async (req, res) => {
 
       return res.json({
         text: result.response.text(),
-        activeFileUris: finalFileList,
+        activeFileUris: finalFiles,
       });
     }
 
@@ -169,7 +171,8 @@ app.post("/chatWithTutor", async (req, res) => {
        ACTION: Math Vision
     ----------------------------- */
     if (action === "math_vision") {
-      if (!image) return res.status(400).json({ error: "Image missing." });
+      if (!image)
+        return res.status(400).json({ error: "Image is required for math vision" });
 
       const model = genAI.getGenerativeModel({
         model: MODEL,
@@ -177,8 +180,8 @@ app.post("/chatWithTutor", async (req, res) => {
       });
 
       const result = await model.generateContent([
-        `Analyze this math problem. Return ONLY JSON:
-        { "latex": "...", "hint": "...", "solution": "..." }`,
+        `Analyze this math problem & return JSON ONLY:
+         { "latex": "...", "hint": "...", "solution": "..." }`,
         { inlineData: { mimeType: "image/png", data: image } },
       ]);
 
@@ -194,18 +197,19 @@ app.post("/chatWithTutor", async (req, res) => {
         generationConfig: { responseMimeType: "application/json" },
       });
 
-      const result = await model.generateContent(`
+      const prompt = `
         Create 5 flashcards about "${topic || message}".
-        JSON ONLY:
+        Return JSON ONLY:
         [
           { "front": "...", "back": "...", "tag": "..." }
         ]
-      `);
+      `;
 
+      const result = await model.generateContent(prompt);
       return res.json(JSON.parse(result.response.text()));
     }
 
-    return res.status(400).json({ error: "Unknown action." });
+    return res.status(400).json({ error: "Unknown action" });
   } catch (err) {
     console.error("🔥 Server Error:", err);
     res.status(500).json({ error: err.message });
@@ -213,9 +217,9 @@ app.post("/chatWithTutor", async (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   🚀 START SERVER
+   START SERVER
 --------------------------------------------------------- */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🌐 Server running on port ${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🌍 ArchieSavvy Server running on PORT ${PORT}`)
+);

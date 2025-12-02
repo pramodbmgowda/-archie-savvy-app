@@ -10,15 +10,7 @@ import RNFS from 'react-native-fs';
 import { StorageService } from '../services/storage';
 
 // -------- CONFIG ----------
-const PROJECT_ID = "archie-savvy-app-79268";
-const REGION = "us-central1";
-const FUNCTION_NAME = "chatWithTutor";
-const YOUR_LOCAL_IP = "10.195.183.1"; 
-
-const API_URL = Platform.OS === 'android'
-  ? `http://${YOUR_LOCAL_IP}:5001/${PROJECT_ID}/${REGION}/${FUNCTION_NAME}`
-  : `http://127.0.0.1:5001/${PROJECT_ID}/${REGION}/${FUNCTION_NAME}`;
-
+const API_URL = "https://archie-savvy-app.onrender.com/chatWithTutor";
 const COLORS = {
   background: "#343541",
   sidebar: "#202123",

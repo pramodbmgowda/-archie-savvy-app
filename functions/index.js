@@ -1,15 +1,31 @@
-const { onRequest } = require("firebase-functions/v2/https");
+console.log("Starting Server Script..."); // 👈 Verification Log
+
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { GoogleAIFileManager } = require("@google/generative-ai/server"); 
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 require("dotenv").config();
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const fileManager = new GoogleAIFileManager(process.env.GOOGLE_API_KEY);
+const app = express();
+app.use(cors({ origin: true }));
+app.use(bodyParser.json({ limit: '50mb' })); // Allow large files
 
-// Models
+// Initialize Gemini
+// Ensure GOOGLE_API_KEY is in your .env file or hardcoded for testing
+const apiKey = process.env.GOOGLE_API_KEY;
+if (!apiKey) {
+    console.error("❌ ERROR: GOOGLE_API_KEY is missing from .env file");
+    process.exit(1);
+}
+
+const genAI = new GoogleGenerativeAI(apiKey);
+const fileManager = new GoogleAIFileManager(apiKey);
+
+// ✅ MODELS: Using 2.0 Flash for everything as requested
 const CHAT_MODEL = "gemini-2.0-flash"; 
 const VISION_MODEL = "gemini-2.0-flash";
 const FLASHCARD_MODEL = "gemini-2.0-flash";
@@ -41,15 +57,8 @@ async function uploadToGemini(base64Data, mimeType, displayName) {
   }
 }
 
-exports.chatWithTutor = onRequest({ timeoutSeconds: 300 }, async (req, res) => {
-  res.set("Access-Control-Allow-Origin", "*");
-  if (req.method === "OPTIONS") {
-    res.set("Access-Control-Allow-Headers", "Content-Type");
-    res.set("Access-Control-Allow-Methods", "POST");
-    res.status(200).send();
-    return;
-  }
-
+// The Main Route
+app.post('/chatWithTutor', async (req, res) => {
   try {
     const { action, message, history = [], files = [], activeFileUris = [], image, topic } = req.body;
 
@@ -177,3 +186,6 @@ exports.chatWithTutor = onRequest({ timeoutSeconds: 300 }, async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
