@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -6,19 +6,15 @@ import {
   StyleSheet, 
   ActivityIndicator, 
   Alert, 
-  Platform,
-  Linking,
   StatusBar
 } from 'react-native';
 import SignatureScreen from "react-native-signature-canvas";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
-import RNFS from 'react-native-fs'; 
 
 // -------- CONFIG ----------
 const API_URL = "https://archie-savvy-app.onrender.com/chatWithTutor";
 
-// --- UNIFIED DARK THEME ---
+// --- THEME ---
 const COLORS = {
   background: "#343541",
   sidebar: "#202123",
@@ -33,49 +29,14 @@ const COLORS = {
 };
 
 const ArchieScreen = () => {
-  const [mode, setMode] = useState("draw"); // 'draw' | 'camera'
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [showAnswer, setShowAnswer] = useState(false);
-
-  const device = useCameraDevice('back');
-  const { hasPermission, requestPermission } = useCameraPermission();
-  const cameraRef = useRef(null);
   const signatureRef = useRef(null);
-
-  useEffect(() => {
-    if (!hasPermission) requestPermission();
-  }, [hasPermission]);
-
-  const handlePermissionRequest = async () => {
-    const granted = await requestPermission();
-    if (!granted) {
-        Alert.alert("Camera Permission", "Please enable camera access.", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => Linking.openSettings() }
-        ]);
-    }
-  };
 
   const handleSignatureOK = (signature) => {
     const cleanBase64 = signature.replace("data:image/png;base64,", "");
     sendToBrain(cleanBase64);
-  };
-
-  const takePicture = async () => {
-    if (!cameraRef.current) return;
-    try {
-      const photo = await cameraRef.current.takePhoto({
-        flash: 'off',
-        enableShutterSound: false,
-        qualityPrioritization: 'balanced',
-      });
-      const base64 = await RNFS.readFile(photo.path, 'base64');
-      sendToBrain(base64);
-    } catch (e) {
-      console.error("Camera Error:", e);
-      Alert.alert("Error", "Could not capture image.");
-    }
   };
 
   const sendToBrain = async (base64Image) => {
@@ -90,8 +51,6 @@ const ArchieScreen = () => {
       });
       if (!response.ok) throw new Error(await response.text());
       setResult(await response.json());
-      // Automatically switch back to 'draw' mode to show results cleanly
-      setMode("draw"); 
     } catch (error) {
       console.error(error);
       Alert.alert("Error", "Archie couldn't analyze that.");
@@ -100,39 +59,12 @@ const ArchieScreen = () => {
     }
   };
 
-  if (!hasPermission) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <StatusBar barStyle="light-content" />
-        <Text style={styles.permissionText}>Archie needs camera access.</Text>
-        <TouchableOpacity onPress={handlePermissionRequest} style={styles.btn}>
-           <Text style={styles.btnText}>Grant Permission</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
       
-      {/* 1. HEADER (Now with Z-Index to stay on top of Camera) */}
       <SafeAreaView edges={['top']} style={styles.header}>
-          <Text style={styles.title}>👁️ Archie Vision</Text>
-          <View style={styles.tabs}>
-              <TouchableOpacity 
-                onPress={() => { setMode("draw"); setResult(null); }} 
-                style={[styles.tab, mode==="draw" && styles.activeTab]}
-              >
-                  <Text style={mode==="draw" ? styles.activeText : styles.text}>✏️ Draw</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={() => { setMode("camera"); setResult(null); }} 
-                style={[styles.tab, mode==="camera" && styles.activeTab]}
-              >
-                  <Text style={mode==="camera" ? styles.activeText : styles.text}>📸 Camera</Text>
-              </TouchableOpacity>
-          </View>
+          <Text style={styles.title}>✏️ Math Canvas</Text>
       </SafeAreaView>
 
       <View style={styles.content}>
@@ -165,68 +97,34 @@ const ArchieScreen = () => {
                 </TouchableOpacity>
             </View>
         ) : (
-          // --- INPUT VIEW ---
-          <>
-            {mode === "draw" ? (
-                <View style={{flex: 1}}>
-                    <View style={styles.canvasContainer}>
-                        <SignatureScreen
-                            ref={signatureRef}
-                            onOK={handleSignatureOK}
-                            backgroundColor={COLORS.canvas}
-                            penColor="#000000"
-                            imageType="image/png"
-                            minWidth={3}
-                            webStyle={`.m-signature-pad--footer { display: none; } body,html { width: 100%; height: 100%; background-color: #ffffff; }`} 
-                        />
-                    </View>
-                    <View style={styles.controls}>
-                        <TouchableOpacity style={styles.clearBtn} onPress={() => signatureRef.current.clearSignature()}>
-                            <Text style={styles.clearText}>Clear</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.solveBtn} onPress={() => signatureRef.current.readSignature()}>
-                            <Text style={styles.btnText}>Solve</Text>
-                        </TouchableOpacity>
-                    </View>
+          // --- DRAWING VIEW ---
+            <View style={{flex: 1}}>
+                <View style={styles.canvasContainer}>
+                    <SignatureScreen
+                        ref={signatureRef}
+                        onOK={handleSignatureOK}
+                        backgroundColor={COLORS.canvas}
+                        penColor="#000000"
+                        imageType="image/png"
+                        minWidth={3}
+                        webStyle={`.m-signature-pad--footer { display: none; } body,html { width: 100%; height: 100%; background-color: #ffffff; }`} 
+                    />
                 </View>
-            ) : (
-                <View style={{flex: 1, backgroundColor: '#000', overflow:'hidden'}}>
-                   {device ? (
-                    <>
-                      <Camera 
-                        style={StyleSheet.absoluteFill} 
-                        device={device} 
-                        isActive={mode === "camera" && !result} 
-                        photo={true} 
-                        ref={cameraRef} 
-                      />
-                      
-                      {/* CLOSE BUTTON (Backup way to exit camera) */}
-                      <TouchableOpacity 
-                          style={styles.closeCameraBtn} 
-                          onPress={() => setMode("draw")}
-                      >
-                          <Text style={styles.closeCameraText}>✕</Text>
-                      </TouchableOpacity>
-
-                      {/* CAMERA CONTROLS */}
-                      <View style={styles.cameraControls}>
-                          <TouchableOpacity style={styles.snapBtn} onPress={takePicture}>
-                              <View style={styles.snapInner} />
-                          </TouchableOpacity>
-                      </View>
-                    </>
-                   ) : <Text style={styles.centerText}>No Camera Device</Text>}
+                <View style={styles.controls}>
+                    <TouchableOpacity style={styles.clearBtn} onPress={() => signatureRef.current.clearSignature()}>
+                        <Text style={styles.clearText}>Clear</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.solveBtn} onPress={() => signatureRef.current.readSignature()}>
+                        <Text style={styles.btnText}>Solve</Text>
+                    </TouchableOpacity>
                 </View>
-            )}
-          </>
+            </View>
         )}
 
-        {/* LOADING OVERLAY */}
         {loading && (
             <View style={styles.overlay}>
                 <ActivityIndicator size="large" color={COLORS.primary} />
-                <Text style={styles.loadingText}>Archie is thinking...</Text>
+                <Text style={styles.loadingText}>Analyzing Math...</Text>
             </View>
         )}
       </View>
@@ -236,64 +134,24 @@ const ArchieScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  
-  // Header - Added Z-Index and Elevation to stay above Camera
   header: { 
     backgroundColor: COLORS.sidebar, 
     borderBottomWidth: 1, 
     borderColor: COLORS.border, 
-    paddingBottom: 10,
-    zIndex: 20, 
-    elevation: 20 
+    paddingBottom: 15,
+    alignItems: 'center'
   },
-  title: { fontSize: 18, fontWeight: '700', textAlign: 'center', marginVertical: 10, color: COLORS.text },
-  tabs: { flexDirection: 'row', backgroundColor: COLORS.inputBg, borderRadius: 8, marginHorizontal: 20, padding: 3 },
-  tab: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
-  activeTab: { backgroundColor: COLORS.sidebar },
-  text: { fontWeight: '500', color: COLORS.subText, fontSize: 14 },
-  activeText: { fontWeight: 'bold', color: COLORS.text, fontSize: 14 },
-  
+  title: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginTop: 5 },
   content: { flex: 1 },
-  permissionText: { color: COLORS.text, marginBottom: 20, fontSize: 16 },
-  centerText: { color: COLORS.subText, alignSelf: 'center', marginTop: 100 },
-
-  // Canvas
   canvasContainer: { flex: 1, margin: 15, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border },
   controls: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 30 },
   clearBtn: { padding: 15 },
   clearText: { color: COLORS.danger, fontWeight: '600' },
   solveBtn: { backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 40, borderRadius: 25 },
-  
-  // Camera
-  cameraControls: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center' },
-  snapBtn: { width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.3)', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFF' },
-  snapInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#FFF' },
-  
-  // Close Camera Button
-  closeCameraBtn: {
-      position: 'absolute',
-      top: 20,
-      left: 20,
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 30
-  },
-  closeCameraText: { color: '#FFF', fontSize: 20, fontWeight: 'bold' },
-
-  // Common Buttons
   btn: { backgroundColor: COLORS.primary, padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   btnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  
-  // Loading
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(52, 53, 65, 0.9)', justifyContent: 'center', alignItems: 'center', zIndex: 50 },
   loadingText: { color: COLORS.text, marginTop: 15, fontSize: 16, fontWeight: '500' },
-
-  // Results
   resultContainer: { flex: 1, padding: 20, justifyContent: 'center' },
   latexLabel: { fontSize: 11, color: COLORS.subText, fontWeight: '700', letterSpacing: 1, marginBottom: 8, textTransform:'uppercase' },
   latexBox: { backgroundColor: COLORS.inputBg, padding: 15, borderRadius: 8, marginBottom: 20, alignItems:'center' },

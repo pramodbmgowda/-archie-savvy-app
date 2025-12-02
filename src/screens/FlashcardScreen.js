@@ -18,6 +18,7 @@ import SwipeCard from '../components/SwipeCard';
 
 // -------- CONFIG ----------
 const API_URL = "https://archie-savvy-app.onrender.com/chatWithTutor";
+
 const COLORS = {
   background: "#343541",
   sidebar: "#202123",
