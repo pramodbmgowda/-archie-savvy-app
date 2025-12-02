@@ -1,129 +1,221 @@
-console.log("Starting Server Script..."); // 👈 Verification Log
+console.log("🚀 Starting Server Script...");
 
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 require("dotenv").config();
 
+// Google AI SDK
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleAIFileManager } = require("@google/generative-ai/server");
+
 const app = express();
 app.use(cors({ origin: true }));
-app.use(bodyParser.json({ limit: '50mb' })); // Allow large files
+app.use(bodyParser.json({ limit: "50mb" }));
 
-// Initialize Gemini
-// Ensure GOOGLE_API_KEY is in your .env file or hardcoded for testing
-const apiKey = process.env.GOOGLE_API_KEY;
-if (!apiKey) {
-    console.error("❌ ERROR: GOOGLE_API_KEY is missing from .env file");
-    process.exit(1);
+/* ---------------------------------------------------------
+   ✅ ENVIRONMENT VALIDATION
+--------------------------------------------------------- */
+if (!process.env.GOOGLE_API_KEY) {
+  console.error("❌ ERROR: Missing GOOGLE_API_KEY in environment.");
+  process.exit(1);
 }
 
+const apiKey = process.env.GOOGLE_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 const fileManager = new GoogleAIFileManager(apiKey);
 
-const CHAT_MODEL = "gemini-2.0-flash"; 
-const VISION_MODEL = "gemini-2.0-flash";
-const FLASHCARD_MODEL = "gemini-2.0-flash";
-const TITLE_MODEL = "gemini-2.0-flash";
+/* ---------------------------------------------------------
+   🔧 MODEL CONFIG
+--------------------------------------------------------- */
+const MODEL = "gemini-2.0-flash";
 
-
-// Helper: Upload to Gemini
+/* ---------------------------------------------------------
+   📤 HELPER: Upload Files to Gemini
+--------------------------------------------------------- */
 async function uploadToGemini(base64Data, mimeType, displayName) {
   try {
-    const buffer = Buffer.from(base64Data, 'base64');
-    const tempFilePath = path.join(os.tmpdir(), displayName || `temp_${Date.now()}`);
-    fs.writeFileSync(tempFilePath, buffer);
+    const buffer = Buffer.from(base64Data, "base64");
+    const tempFile = path.join(os.tmpdir(), displayName || `temp_${Date.now()}`);
 
-    const uploadResponse = await fileManager.uploadFile(tempFilePath, {
-      mimeType: mimeType,
-      displayName: displayName,
+    fs.writeFileSync(tempFile, buffer);
+
+    const uploaded = await fileManager.uploadFile(tempFile, {
+      mimeType,
+      displayName,
     });
 
-    fs.unlinkSync(tempFilePath);
-    return { uri: uploadResponse.file.uri, mimeType: mimeType };
-  } catch (error) {
-    console.error("Upload failed:", error);
-    throw error;
+    fs.unlinkSync(tempFile);
+
+    return { uri: uploaded.file.uri, mimeType };
+  } catch (err) {
+    console.error("❌ File Upload Error:", err);
+    throw new Error("File upload to Gemini failed.");
   }
 }
 
-// The Main Route
-app.post('/chatWithTutor', async (req, res) => {
+/* ---------------------------------------------------------
+   🏠 ROOT ROUTE (Fixes Render 404 Issue)
+--------------------------------------------------------- */
+app.get("/", (req, res) => {
+  res.json({
+    status: "running",
+    message: "ArchieSavvy Backend is Live 🚀",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/* ---------------------------------------------------------
+   🎓 TITLING
+--------------------------------------------------------- */
+app.post("/generate-title", async (req, res) => {
   try {
-    const { action, message, history = [], files = [], activeFileUris = [], image, topic } = req.body;
+    const { message } = req.body;
 
-    // 1. Generate Title
-    if (action === "generate_title") {
-      const model = genAI.getGenerativeModel({ model: TITLE_MODEL });
-      const result = await model.generateContent(`Summarize this in 3-5 words for a chat title: ${message}`);
-      return res.json({ title: result.response.text().trim() });
-    }
+    const model = genAI.getGenerativeModel({ model: MODEL });
+    const output = await model.generateContent(
+      `Summarize this in 3–5 words for a chat title: ${message}`
+    );
 
-    // 2. Chat
-    if (action === "chat") {
-      let newlyUploadedFiles = [];
-      if (files && files.length > 0) {
-        console.log(`📂 Uploading ${files.length} new files...`);
-        const uploadPromises = files.map(f => {
-           const mime = f.type === 'pdf' || f.name.endsWith('.pdf') ? 'application/pdf' : 'image/png';
-           return uploadToGemini(f.data, mime, f.name);
-        });
-        newlyUploadedFiles = await Promise.all(uploadPromises);
-      }
-
-      const validOldFiles = activeFileUris.filter(f => typeof f === 'object' && f.uri); 
-      const finalFiles = [...validOldFiles, ...newlyUploadedFiles];
-
-      const model = genAI.getGenerativeModel({ model: CHAT_MODEL });
-      const chatHistory = history.map(m => ({ role: m.role, parts: [{ text: m.text || "" }] })).slice(-15);
-
-      const currentParts = [];
-      for (const fileObj of finalFiles) {
-          currentParts.push({
-              fileData: { mimeType: fileObj.mimeType, fileUri: fileObj.uri }
-          });
-      }
-      if (message) currentParts.push({ text: message });
-
-      const result = await model.generateContent({
-          contents: [...chatHistory, { role: "user", parts: currentParts }]
-      });
-
-      return res.json({
-          text: result.response.text(),
-          activeFileUris: finalFiles 
-      });
-    }
-
-    // 3. Vision
-    if (action === "math_vision") {
-        if (!image) return res.status(400).json({ error: "No image" });
-        const model = genAI.getGenerativeModel({ model: VISION_MODEL, generationConfig: { responseMimeType: "application/json" } });
-        const result = await model.generateContent([
-            `Analyze this math problem. Return ONLY valid JSON: { "latex": "...", "hint": "...", "solution": "..." }`,
-            { inlineData: { mimeType: "image/png", data: image } }
-        ]);
-        return res.json(JSON.parse(result.response.text()));
-    }
-
-    // 4. Flashcards
-    if (action === "generate_flashcards") {
-        const model = genAI.getGenerativeModel({ model: FLASHCARD_MODEL, generationConfig: { responseMimeType: "application/json" } });
-        const result = await model.generateContent(`Create 5 distinct flashcards about: "${topic || message}". Return valid JSON array: [{ "front": "...", "back": "...", "tag": "..." }]`);
-        return res.json(JSON.parse(result.response.text()));
-    }
-
-    return res.status(400).json({ error: "Unknown action" });
-
+    return res.json({ title: output.response.text().trim() });
   } catch (err) {
-    console.error("🔥 Server Error:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("❌ Title Error:", err);
+    res.status(500).json({ error: "Failed to generate title." });
   }
 });
 
+/* ---------------------------------------------------------
+   💬 MAIN CHAT ENDPOINT
+--------------------------------------------------------- */
+app.post("/chatWithTutor", async (req, res) => {
+  try {
+    const {
+      action,
+      message,
+      history = [],
+      files = [],
+      activeFileUris = [],
+      image,
+      topic,
+    } = req.body;
+
+    /* -----------------------------
+       ACTION: Title generation
+    ----------------------------- */
+    if (action === "generate_title") {
+      const model = genAI.getGenerativeModel({ model: MODEL });
+      const output = await model.generateContent(
+        `Summarize this in 3–5 words: ${message}`
+      );
+      return res.json({ title: output.response.text().trim() });
+    }
+
+    /* -----------------------------
+       ACTION: Chat
+    ----------------------------- */
+    if (action === "chat") {
+      let newUploads = [];
+
+      // Upload new files
+      if (files?.length > 0) {
+        const uploads = files.map((file) =>
+          uploadToGemini(
+            file.data,
+            file.type === "pdf" ? "application/pdf" : "image/png",
+            file.name
+          )
+        );
+
+        newUploads = await Promise.all(uploads);
+      }
+
+      const existingFiles = activeFileUris.filter(
+        (f) => typeof f === "object" && f.uri
+      );
+
+      const finalFileList = [...existingFiles, ...newUploads];
+
+      const model = genAI.getGenerativeModel({ model: MODEL });
+
+      const chatHistory = history
+        .map((m) => ({ role: m.role, parts: [{ text: m.text || "" }] }))
+        .slice(-15);
+
+      const parts = [];
+
+      // Attach files as parts
+      finalFileList.forEach((file) => {
+        parts.push({
+          fileData: { mimeType: file.mimeType, fileUri: file.uri },
+        });
+      });
+
+      if (message) parts.push({ text: message });
+
+      const result = await model.generateContent({
+        contents: [...chatHistory, { role: "user", parts }],
+      });
+
+      return res.json({
+        text: result.response.text(),
+        activeFileUris: finalFileList,
+      });
+    }
+
+    /* -----------------------------
+       ACTION: Math Vision
+    ----------------------------- */
+    if (action === "math_vision") {
+      if (!image) return res.status(400).json({ error: "Image missing." });
+
+      const model = genAI.getGenerativeModel({
+        model: MODEL,
+        generationConfig: { responseMimeType: "application/json" },
+      });
+
+      const result = await model.generateContent([
+        `Analyze this math problem. Return ONLY JSON:
+        { "latex": "...", "hint": "...", "solution": "..." }`,
+        { inlineData: { mimeType: "image/png", data: image } },
+      ]);
+
+      return res.json(JSON.parse(result.response.text()));
+    }
+
+    /* -----------------------------
+       ACTION: Flashcards
+    ----------------------------- */
+    if (action === "generate_flashcards") {
+      const model = genAI.getGenerativeModel({
+        model: MODEL,
+        generationConfig: { responseMimeType: "application/json" },
+      });
+
+      const result = await model.generateContent(`
+        Create 5 flashcards about "${topic || message}".
+        JSON ONLY:
+        [
+          { "front": "...", "back": "...", "tag": "..." }
+        ]
+      `);
+
+      return res.json(JSON.parse(result.response.text()));
+    }
+
+    return res.status(400).json({ error: "Unknown action." });
+  } catch (err) {
+    console.error("🔥 Server Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* ---------------------------------------------------------
+   🚀 START SERVER
+--------------------------------------------------------- */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🌐 Server running on port ${PORT}`);
+});
