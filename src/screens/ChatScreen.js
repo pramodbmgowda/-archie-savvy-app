@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Alert,
-  Keyboard, Animated, Dimensions, Clipboard
+  Keyboard, Animated, Dimensions
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { pick, types } from '@react-native-documents/picker';
 import RNFS from 'react-native-fs';
