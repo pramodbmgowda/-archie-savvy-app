@@ -14,6 +14,8 @@ const { GoogleAIFileManager } = require("@google/generative-ai/server");
 
 const app = express();
 app.use(cors({ origin: true }));
+
+// Increased limit to handle base64 images/PDFs
 app.use(bodyParser.json({ limit: "50mb" }));
 
 /* ---------------------------------------------------------
@@ -72,18 +74,15 @@ app.get("/", (req, res) => {
 });
 
 /* ---------------------------------------------------------
-   ✨ Generate Title
+   ✨ Generate Title Endpoint (Optional standalone)
 --------------------------------------------------------- */
 app.post("/generate-title", async (req, res) => {
   try {
     const { message } = req.body;
-
     const model = genAI.getGenerativeModel({ model: MODEL });
-
     const result = await model.generateContent(
       `Summarize this into a short 3-5 word title: ${message}`
     );
-
     res.json({ title: result.response.text().trim() });
   } catch (err) {
     console.error(err);
@@ -107,7 +106,7 @@ app.post("/chatWithTutor", async (req, res) => {
     } = req.body;
 
     /* -----------------------------
-       ACTION: Generate Title
+       ACTION: Generate Title (Inside main route)
     ----------------------------- */
     if (action === "generate_title") {
       const model = genAI.getGenerativeModel({ model: MODEL });
@@ -118,37 +117,51 @@ app.post("/chatWithTutor", async (req, res) => {
     }
 
     /* -----------------------------
-       ACTION: Chat
+       ACTION: Chat (The Smart Camera Handler)
     ----------------------------- */
     if (action === "chat") {
       let newUploads = [];
 
+      // 1. Upload new files if present
       if (files?.length > 0) {
-        const uploadJobs = files.map((f) =>
-          uploadToGemini(
-            f.data,
-            f.type === "pdf" ? "application/pdf" : "image/png",
-            f.name
-          )
-        );
+        const uploadJobs = files.map((f) => {
+          // 🛠️ FIX: Better MIME type detection (Camera sends JPEGs)
+          let mimeType = "image/jpeg"; // Default to JPEG for camera photos
+
+          if (f.type === "pdf" || (f.name && f.name.toLowerCase().endsWith(".pdf"))) {
+            mimeType = "application/pdf";
+          } else if (f.name && f.name.toLowerCase().endsWith(".png")) {
+            mimeType = "image/png";
+          }
+          
+          return uploadToGemini(f.data, mimeType, f.name);
+        });
+        
         newUploads = await Promise.all(uploadJobs);
       }
 
+      // 2. Combine old active files with new uploads
       const oldFiles = activeFileUris.filter(
         (f) => typeof f === "object" && f.uri
       );
-
       const finalFiles = [...oldFiles, ...newUploads];
 
-      const model = genAI.getGenerativeModel({ model: MODEL });
+      // 3. Initialize Model with SMART SYSTEM INSTRUCTION
+      // This ensures it handles general images AND math problems accurately.
+      const model = genAI.getGenerativeModel({ 
+          model: MODEL,
+          systemInstruction: "You are Archie, an intelligent AI tutor. You are capable of general image analysis (identifying objects, reading text, explaining scenes) but you also specialize in Mathematics and Coding. If the user provides an image of a math problem, solve it step-by-step with high accuracy. If the image is general, describe or answer the user's question about it naturally."
+      });
 
+      // 4. Format history
       const chatHistory = history
         .map((m) => ({
           role: m.role,
           parts: [{ text: m.text || "" }],
         }))
-        .slice(-15);
+        .slice(-15); 
 
+      // 5. Prepare current message
       const parts = [];
 
       finalFiles.forEach((file) =>
@@ -157,6 +170,7 @@ app.post("/chatWithTutor", async (req, res) => {
 
       if (message) parts.push({ text: message });
 
+      // 6. Generate Response
       const result = await model.generateContent({
         contents: [...chatHistory, { role: "user", parts }],
       });
@@ -168,7 +182,7 @@ app.post("/chatWithTutor", async (req, res) => {
     }
 
     /* -----------------------------
-       ACTION: Math Vision
+       ACTION: Math Vision (Archie Screen Specific)
     ----------------------------- */
     if (action === "math_vision") {
       if (!image)
