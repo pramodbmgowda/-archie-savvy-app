@@ -1,6 +1,7 @@
 node_modules/
 *.local
 .env
+.DS_Store
 ios/**/*.xcworkspace
 ios/**/*.xcodeproj
 ios/Pods/
