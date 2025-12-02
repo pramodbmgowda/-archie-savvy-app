@@ -530,4 +530,5 @@ const styles = StyleSheet.create({
   snapInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#FFF' }
 });
 
+
 export default ChatScreen;
