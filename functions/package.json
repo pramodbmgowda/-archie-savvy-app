@@ -1,0 +1,27 @@
+{
+  "name": "archie-backend",
+  "version": "1.0.0",
+  "description": "ArchieSavvy backend for chat & vision (Gemini).",
+  "main": "server.js",
+  "engines": {
+    "node": "18.x || 20.x || 24.x"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "lint": "echo \"no lint configured\""
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@google/generative-ai/server": "^0.24.1",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.18.2",
+    "fs-extra": "^11.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "private": true
+}

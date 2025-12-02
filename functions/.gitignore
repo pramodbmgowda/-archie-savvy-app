@@ -1,0 +1,7 @@
+node_modules/
+*.local
+.env
+ios/**/*.xcworkspace
+ios/**/*.xcodeproj
+ios/Pods/
+ios/build/
