@@ -2,6 +2,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- 🚨 ADD THESE LINES TO FIX THE SETTINGS MENU -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 🚨 END OF NEW PERMISSIONS -->
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
