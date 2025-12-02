@@ -12,15 +12,21 @@ import { Camera, useCameraDevice, useCameraPermission } from 'react-native-visio
 import { StorageService } from '../services/storage';
 
 // -------- CONFIG ----------
+// ⚡ Replace with your actual Render URL
 const API_URL = "https://archie-savvy-app.onrender.com/chatWithTutor";
+
+// --- CHATGPT THEME COLORS ---
 const COLORS = {
-  background: "#343541",
-  sidebar: "#202123",
-  inputBg: "#40414F",
-  userBubble: "#343541", 
-  aiBubble: "#444654",   
-  text: "#ECECF1",
-  subText: "#ACACBE",
+  background: "#343541",   // Main App Background (Dark)
+  sidebar: "#202123",      // Sidebar Background (Darker)
+  inputBg: "#40414F",      // Input Field Background
+  
+  // Bubbles
+  userBubble: "#10a37f",   // ChatGPT Green for User
+  aiBubble: "#444654",     // Lighter Grey for AI (Classic ChatGPT Web Look)
+  
+  text: "#ECECF1",         // Main Text Color (Off-White)
+  subText: "#ACACBE",      // Secondary Text
   border: "rgba(255,255,255,0.1)",
   primary: "#10a37f",
   danger: "#ef4444",
@@ -64,17 +70,17 @@ const ChatScreen = () => {
     const init = async () => {
       try {
         const sessions = await StorageService.getAllSessions();
-        // Filter out DELETED sessions
         const validSessions = (sessions || []).filter(s => s.title !== "DELETED");
         
-        setAllSessions(validSessions);
-        
-        if (validSessions.length > 0) {
-            loadSession(validSessions[0]);
-        } else {
-            createNewSession();
-        }
-      } catch (err) { await createNewSession(); }
+        // Always start fresh (ChatGPT style)
+        const newSession = await StorageService.createSession();
+
+        setAllSessions([newSession, ...validSessions]);
+        loadSession(newSession);
+
+      } catch (err) { 
+        await createNewSession(); 
+      }
     };
     init();
   }, []);
@@ -105,7 +111,6 @@ const ChatScreen = () => {
             enableShutterSound: false,
             qualityPrioritization: 'balanced', 
         });
-        
         const base64 = await RNFS.readFile(photo.path, 'base64');
         
         const newFile = {
@@ -115,7 +120,6 @@ const ChatScreen = () => {
             uri: `file://${photo.path}`, 
             data: base64
         };
-
         setDraftFiles(prev => [...prev, newFile]);
         setCameraVisible(false);
     } catch (e) {
@@ -147,9 +151,9 @@ const ChatScreen = () => {
     setDraftFiles([]); setMessage('');
     setEditingMsgId(null);
     const msgs = await StorageService.loadSessionMessages(session.id);
-    setChatHistory(msgs && msgs.length > 0 ? msgs : [{
-      id: uid(), role: 'model', text: "Hi! I'm Archie. Upload a PDF, take a photo, or ask me anything.", sent: true
-    }]);
+    
+    // Start empty (No "Hi I'm Archie" message)
+    setChatHistory(msgs && msgs.length > 0 ? msgs : []); 
   };
 
   const deleteCurrentSession = async () => {
@@ -158,19 +162,12 @@ const ChatScreen = () => {
         { text: "Cancel", style: "cancel" },
         { text: "Delete", style: "destructive", onPress: async () => {
             const id = currentSession.id;
-            
             const remaining = allSessions.filter(s => s.id !== id);
             setAllSessions(remaining);
-            
             await StorageService.updateSessionMeta(id, "DELETED").catch(()=>{});
-            
             setShowChatSettings(false);
-            
-            if (remaining.length > 0) {
-                loadSession(remaining[0]);
-            } else {
-                createNewSession();
-            }
+            if (remaining.length > 0) loadSession(remaining[0]);
+            else createNewSession();
         }}
     ]);
   };
@@ -300,20 +297,39 @@ const ChatScreen = () => {
             onPress={() => setActiveMessageId(isActive ? null : item.id)} 
             style={[styles.bubbleRow, isUser ? styles.bubbleRowUser : styles.bubbleRowAI]}
           >
-            {!isUser && <View style={styles.avatarWrap}><Text style={styles.avatar}>🤖</Text></View>}
-            <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
+            {/* Avatar for AI */}
+            {!isUser && (
+                <View style={styles.avatarWrap}>
+                    <Text style={styles.avatar}>🤖</Text>
+                </View>
+            )}
+            
+            {/* Message Bubble */}
+            <View style={[
+                styles.bubble, 
+                isUser ? styles.bubbleUser : styles.bubbleAi,
+                // If it's AI, ensure no white background
+                !isUser && { backgroundColor: COLORS.aiBubble } 
+            ]}>
                 {item.files && item.files.length > 0 && (
                     <View style={styles.bubbleFiles}>
                         {item.files.map(f => (
                             <View key={f.id} style={styles.fileChip}>
-                                {/* 🛠️ FIXED: Replaced raw emojis with Unicode escapes to prevent build crash */}
                                 <Text style={styles.fileIcon}>{f.type === 'pdf' ? '\uD83D\uDCC4' : '\uD83D\uDDBC'}</Text>
                                 <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
                             </View>
                         ))}
                     </View>
                 )}
-                {item.text ? <Text style={styles.text} selectable={true} selectionColor={COLORS.primary}>{item.text}</Text> : null}
+                {item.text ? (
+                    <Text 
+                        style={[styles.text, { color: COLORS.text }]} 
+                        selectable={true} 
+                        selectionColor={COLORS.primary}
+                    >
+                        {item.text}
+                    </Text>
+                ) : null}
             </View>
           </TouchableOpacity>
           {isActive && (
@@ -328,12 +344,16 @@ const ChatScreen = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      
+      {/* HEADER */}
       <View style={styles.header}>
          <TouchableOpacity onPress={() => toggleSidebar(true)} style={styles.iconBtn}><Text style={styles.menuIcon}>☰</Text></TouchableOpacity>
          <View style={{flex:1, alignItems:'center'}}><Text numberOfLines={1} style={styles.headerTitle}>{currentSession?.title || "New Chat"}</Text></View>
          <TouchableOpacity onPress={() => setShowChatSettings(true)} style={styles.iconBtn}><Text style={styles.menuIcon}>⋮</Text></TouchableOpacity>
       </View>
 
+      {/* CHAT LIST */}
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
         behavior={Platform.OS === "ios" ? "padding" : "height"} 
@@ -350,12 +370,12 @@ const ChatScreen = () => {
             keyboardShouldPersistTaps="handled"
         />
 
+        {/* INPUT AREA */}
         <View style={styles.inputWrapper}>
             {draftFiles.length > 0 && (
                 <View style={styles.innerDraftList}>
                     {draftFiles.map(f => (
                         <View key={f.id} style={styles.draftChip}>
-                            {/* 🛠️ FIXED: Unicode replacements */}
                             <Text style={styles.draftIcon}>{f.type === 'pdf' ? '\uD83D\uDCC4' : '\uD83D\uDDBC'}</Text>
                             <Text numberOfLines={1} style={styles.draftName}>{f.name}</Text>
                             <TouchableOpacity onPress={() => setDraftFiles(p => p.filter(x => x.id !== f.id))}><Text style={styles.delIcon}>✕</Text></TouchableOpacity>
@@ -394,6 +414,7 @@ const ChatScreen = () => {
         </View>
       </KeyboardAvoidingView>
 
+      {/* SIDEBAR */}
       {isSidebarOpen && (
         <View style={styles.absoluteFill}>
             <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={() => toggleSidebar(false)} />
@@ -413,6 +434,7 @@ const ChatScreen = () => {
         </View>
       )}
 
+      {/* CAMERA MODAL */}
       <Modal visible={isCameraVisible} animationType="slide" presentationStyle="fullScreen">
         <View style={styles.cameraContainer}>
             {device ? (
@@ -437,6 +459,7 @@ const ChatScreen = () => {
         </View>
       </Modal>
 
+      {/* RENAME MODAL */}
       <Modal visible={renameModalVisible} transparent animationType="fade">
           <View style={styles.centerOverlay}>
               <View style={styles.dialogBox}>
@@ -450,6 +473,7 @@ const ChatScreen = () => {
           </View>
       </Modal>
       
+      {/* SETTINGS MODAL */}
       <Modal visible={showChatSettings} transparent animationType="fade">
          <TouchableOpacity style={styles.modalOverlay} onPress={() => setShowChatSettings(false)}>
              <View style={styles.settingsBox}>
@@ -488,7 +512,7 @@ const styles = StyleSheet.create({
   bubbleRowUser: { justifyContent: 'flex-end' },
   bubbleRowAI: { justifyContent: 'flex-start' },
   bubble: { maxWidth: '85%', padding: 12, borderRadius: 12 },
-  bubbleUser: { backgroundColor: COLORS.primary },
+  bubbleUser: { backgroundColor: COLORS.userBubble },
   bubbleAi: { backgroundColor: COLORS.aiBubble },
   text: { color: COLORS.text, fontSize: 16, lineHeight: 24 },
   avatarWrap: { marginRight: 8, marginTop: 4 }, avatar: { fontSize: 20 },
@@ -529,6 +553,5 @@ const styles = StyleSheet.create({
   snapBtn: { width: 70, height: 70, borderRadius: 35, backgroundColor: 'rgba(255,255,255,0.3)', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#FFF' },
   snapInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#FFF' }
 });
-
 
 export default ChatScreen;
